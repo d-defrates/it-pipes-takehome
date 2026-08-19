@@ -48,9 +48,10 @@ store, which is the in-process equivalent of two SQS deliveries reaching two wor
 
 ## Current test status
 
-Against the unmodified starter worker, three of the four tests fail on purpose — they are the
-regression tests for the risks being repaired:
+All five tests pass. Four of them fail against the unmodified starter worker, and each covers one
+of the repairs:
 
+- two concurrent deliveries both start a conversion (no conditional lease),
+- a late attempt overwrites a result another attempt already published (unguarded write),
 - the timed-out conversion is never killed or reaped,
-- two concurrent deliveries both start a conversion,
-- a late attempt overwrites a result another attempt already published.
+- one hardcoded 30 s timeout is applied to imports and exports alike.

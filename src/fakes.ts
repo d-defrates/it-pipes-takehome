@@ -16,9 +16,16 @@ export class InMemoryJobStore implements JobStore {
     return job ? { ...job } : undefined;
   }
 
-  async put(job: Job): Promise<void> {
+  /**
+   * The compare and the set share one synchronous block, so on Node's single
+   * thread this is as atomic as a DynamoDB ConditionExpression.
+   */
+  async put(job: Job, expectedAttempt: number): Promise<boolean> {
+    const current = this.jobs.get(job.id);
+    if ((current?.attempt ?? 0) !== expectedAttempt) return false;
     this.jobs.set(job.id, { ...job });
     this.writes.push({ ...job });
+    return true;
   }
 
   seed(job: Job): void {
@@ -127,6 +134,7 @@ export const flush = (): Promise<void> =>
 
 export const queuedJob = (overrides: Partial<Job> = {}): Job => ({
   id: "job-1",
+  type: "import",
   inputKey: "uploads/db.mdb",
   status: "queued",
   attempt: 0,

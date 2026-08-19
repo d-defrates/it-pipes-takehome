@@ -48,6 +48,28 @@ describe("handle", () => {
     expect((await store.get("job-1"))?.status).not.toBe("succeeded");
   });
 
+  it("budgets the timeout and names the output by job type", async () => {
+    const store = new InMemoryJobStore();
+    store.seed(queuedJob({ id: "imp", type: "import" }));
+    store.seed(queuedJob({ id: "exp", type: "export" }));
+    const converter = new FakeConverter();
+    const clock = new FakeClock();
+
+    const importRun = handle(new FakeMessage("imp"), store, converter, clock);
+    await flush();
+    converter.started[0]?.succeed();
+    await importRun;
+
+    const exportRun = handle(new FakeMessage("exp"), store, converter, clock);
+    await flush();
+    converter.started[1]?.succeed();
+    await exportRun;
+
+    // 30 s would fail every export and most large imports.
+    expect(clock.requested).toEqual([10 * 60_000, 90 * 60_000]);
+    expect(converter.started[1]?.outputKey).toBe("jobs/exp/result.zip");
+  });
+
   it("runs one conversion when the same job is delivered twice at once", async () => {
     const store = new InMemoryJobStore();
     store.seed(queuedJob());
@@ -79,11 +101,13 @@ describe("handle", () => {
     const slow = new FakeMessage("job-1", 1);
     const fatal = new FakeMessage("job-1", 3);
 
+    // The first attempt is still converting when its message is redelivered,
+    // so a second attempt legitimately takes over the still-`running` job.
     const slowRun = handle(slow, store, converter, clock);
+    await flush();
     const fatalRun = handle(fatal, store, converter, clock);
     await flush();
 
-    // The second delivery fails permanently and publishes `failed`.
     converter.started[1]?.fail(new Error("exit 2: required table missing"));
     await fatalRun;
     expect((await store.get("job-1"))?.status).toBe("failed");
